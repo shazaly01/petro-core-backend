@@ -99,4 +99,14 @@ class UserController extends Controller
         $user->delete();
         return response()->noContent();
     }
+
+
+
+    public function workersList()
+{
+    // جلب المستخدمين الذين لديهم دور 'Worker' فقط
+    $workers = User::role('Worker')->latest()->get();
+
+    return UserResource::collection($workers);
+}
 }

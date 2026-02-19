@@ -13,19 +13,20 @@ class UpdateNozzleRequest extends FormRequest
     }
 
     public function rules(): array
-    {
-        return [
-            'pump_id' => ['required', 'integer', 'exists:pumps,id'],
-            'tank_id' => ['required', 'integer', 'exists:tanks,id'],
-            'code' => [
-                'required',
-                'string',
-                'max:50',
-                Rule::unique('nozzles,code')->ignore($this->route('nozzle'))
-            ],
-            // السماح بتعديل العداد يدوياً (للمدراء فقط لتصحيح الأخطاء)
-            'current_counter' => ['required', 'numeric', 'min:0'],
-            'is_active' => ['boolean'],
-        ];
-    }
+{
+    return [
+        'pump_id' => ['required', 'integer', 'exists:pumps,id'],
+        'tank_id' => ['required', 'integer', 'exists:tanks,id'],
+        'code' => [
+            'required',
+            'string',
+            'max:50',
+            // التعديل هنا: تم فصل اسم الجدول عن اسم العمود
+            Rule::unique('nozzles', 'code')->ignore($this->route('nozzle'))
+        ],
+        // السماح بتعديل العداد يدوياً
+        'current_counter' => ['required', 'numeric', 'min:0'],
+        'is_active' => ['boolean'],
+    ];
+}
 }

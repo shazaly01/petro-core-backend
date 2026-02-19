@@ -24,29 +24,25 @@ class ShiftController extends Controller
         return ShiftResource::collection($shifts);
     }
 
-   public function store(StoreShiftRequest $request)
+ public function store(StoreShiftRequest $request)
 {
     // 1. تجهيز البيانات التي تم التحقق منها
     $data = $request->validated();
 
-    // 2. ضبط المشرف
-    if (!isset($data['supervisor_id'])) {
-        $data['supervisor_id'] = Auth::id();
-    }
+    // 2. ضبط المشرف إجبارياً من النظام (أمان تام)
+    $data['supervisor_id'] = Auth::id();
 
     // 3. ضبط وقت البدء
     if (!isset($data['start_at'])) {
         $data['start_at'] = now();
     }
 
-    // 🛑 الإضافة المطلوبة هنا:
-    // نحدد الحالة "مفتوحة" يدوياً لضمان ظهورها في الـ Resource فوراً
+    // 4. تحديد الحالة "مفتوحة" يدوياً
     $data['status'] = 'open';
 
-    // 4. إنشاء الوردية
+    // 5. إنشاء الوردية
     $shift = Shift::create($data);
 
-    // الآن الـ Resource سيجد قيمة 'open' داخل الـ $shift
     return new ShiftResource($shift);
 }
 

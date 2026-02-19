@@ -39,6 +39,7 @@ Route::middleware('auth:sanctum')->group(function () {
         return new \App\Http\Resources\Api\UserResource($request->user()->load('roles'));
     });
 
+     Route::get('users/workers', [UserController::class, 'workersList']);
     // إدارة المستخدمين والصلاحيات
     Route::apiResource('users', UserController::class);
     Route::get('roles/permissions', [RoleController::class, 'getAllPermissions']);
@@ -84,5 +85,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
 
     Route::get('/reports/daily-movement', [ReportController::class, 'dailyMovement']);
+
+
+
 
 });

@@ -31,17 +31,34 @@ class Shift extends Model
         'difference' => 'decimal:3',
     ];
 
+    // الإضافة الجديدة: إلحاق الحقل الوهمي ببيانات النموذج
+    protected $appends = ['name'];
+
+    /**
+     * الإضافة الجديدة: دالة الوصول (Accessor) لتوليد اسم الوردية
+     */
+    public function getNameAttribute(): string
+    {
+        if (!$this->start_at) {
+            return 'وردية غير محددة الوقت';
+        }
+
+        // استخدام locale('ar') لضمان أن اسم اليوم باللغة العربية دائماً (مثل: السبت، الأحد)
+        $dayName = $this->start_at->locale('ar')->translatedFormat('l');
+        $date = $this->start_at->format('Y-m-d');
+
+        return "وردية يوم {$dayName} تاريخ {$date}";
+    }
+
     /**
      * العلاقات
      */
 
-    // المشرف الذي فتح الوردية
     public function supervisor(): BelongsTo
     {
         return $this->belongsTo(User::class, 'supervisor_id');
     }
 
-    // جميع التكليفات التي تمت خلال هذه الوردية
     public function assignments(): HasMany
     {
         return $this->hasMany(Assignment::class);

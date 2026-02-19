@@ -11,6 +11,7 @@ use App\Http\Requests\Assignment\UpdateAssignmentRequest;
 use App\Http\Resources\AssignmentResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Models\Shift;
 
 class AssignmentController extends Controller
 {
@@ -29,15 +30,25 @@ class AssignmentController extends Controller
         return AssignmentResource::collection($assignments);
     }
 
-    /**
-     * بدء تكليف جديد (تسليم عهدة لعامل)
-     */
-    public function store(StoreAssignmentRequest $request)
+   public function store(StoreAssignmentRequest $request)
     {
         $data = $request->validated();
 
-        // 1. جلب بيانات المسدس للتأكد من حالته
-        $nozzle = Nozzle::findOrFail($data['nozzle_id']);
+        // 🛑 1. البحث عن الوردية المفتوحة حالياً
+        // نجلب أول وردية حالتها 'open'
+        $activeShift = Shift::where('status', 'open')->first();
+
+        if (!$activeShift) {
+            return response()->json([
+                'message' => 'لا توجد وردية مفتوحة حالياً. يرجى فتح وردية أولاً للتمكن من إضافة تكليفات.'
+            ], 422);
+        }
+
+        // ربط التكليف الجديد تلقائياً بمعرف الوردية المفتوحة
+        $data['shift_id'] = $activeShift->id;
+
+        // 2. جلب بيانات المسدس للتأكد من حالته
+        $nozzle = Nozzle::with('tank.fuelType')->findOrFail($data['nozzle_id']);
 
         // التحقق: هل المسدس مشغول حالياً؟
         $activeAssignment = Assignment::where('nozzle_id', $nozzle->id)
@@ -45,25 +56,32 @@ class AssignmentController extends Controller
             ->exists();
 
         if ($activeAssignment) {
-            return response()->json(['message' => 'هذا المسدس مشغول حالياً مع موظف آخر.'], 422);
+            return response()->json(['message' => 'هذا المسدس مشغول حالياً مع عامل آخر.'], 422);
         }
 
-        // 2. تحديد قراءة البداية تلقائياً من المسدس
+        // 3. تحديد قراءة البداية تلقائياً من المسدس
         if (!isset($data['start_counter'])) {
             $data['start_counter'] = $nozzle->current_counter;
         }
 
-        // 3. تحديد وقت البدء
+        // 4. تحديد وقت البدء
         if (!isset($data['start_at'])) {
             $data['start_at'] = now();
         }
 
         $data['status'] = 'active';
 
+
+        // 🛑 التعديل الجديد: إجبار النظام على أخذ السعر الرسمي من نوع الوقود (3 خانات عشرية)
+        $data['unit_price'] = $nozzle->tank && $nozzle->tank->fuelType
+            ? round($nozzle->tank->fuelType->current_price, 3)
+            : 0;
+
         $assignment = Assignment::create($data);
 
         return new AssignmentResource($assignment);
     }
+
 
     public function show(Assignment $assignment)
     {

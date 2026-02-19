@@ -11,6 +11,10 @@ class ShiftResource extends JsonResource
     {
         return [
             'id' => $this->id,
+
+            // الإضافة الجديدة: تصدير الاسم الواضح للوردية
+            'name' => $this->name,
+
             'status' => $this->status, // open, closed
 
             // التواريخ بتنسيق واضح

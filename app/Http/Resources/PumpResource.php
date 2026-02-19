@@ -7,10 +7,11 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class PumpResource extends JsonResource
 {
-    public function toArray(Request $request): array
+   public function toArray(Request $request): array
     {
         return [
             'id' => $this->id,
+            'island_id' => $this->island_id, // [التعديل هنا] إضافة المعرف المطلوب للفرونت إند
             'name' => $this->name,
             'code' => $this->code,
             'model' => $this->model,

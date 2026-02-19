@@ -4,64 +4,58 @@ namespace Database\Seeders;
 
 use App\Models\User;
 use Illuminate\Database\Seeder;
-use Spatie\Permission\Models\Role; // استيراد موديل الرتب
+use Spatie\Permission\Models\Role;
 
 class UserSeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     */
     public function run(): void
     {
-        // تحديد الـ guard المستخدم (api لأن خطأك ظهر هناك)
         $guard = 'api';
 
-        // 1. إنشاء مستخدم Super Admin
+        // إنشاء الرتب الأساسية لضمان وجودها قبل التعيين
+        $roles = ['Super Admin', 'Admin', 'Supervisor', 'Worker'];
+        foreach ($roles as $role) {
+            Role::firstOrCreate(['name' => $role, 'guard_name' => $guard]);
+        }
+
+        // 1. Super Admin
         $superAdmin = User::create([
-            'full_name' => 'Super Admin',
+            'full_name' => 'مدير النظام الأعلى',
             'username' => 'superadmin',
             'email' => 'superadmin@app.com',
             'password' => bcrypt('12345678'),
             'email_verified_at' => now(),
         ]);
-        // التأكد من وجود الرتبة ثم التعيين
-        Role::firstOrCreate(['name' => 'Super Admin', 'guard_name' => $guard]);
         $superAdmin->assignRole('Super Admin');
 
-
-        // 2. إنشاء مستخدم Admin
-        $adminUser = User::create([
-            'full_name' => 'Admin User',
+        // 2. Admin (مدير المحطة)
+        $admin = User::create([
+            'full_name' => 'مدير المحطة',
             'username' => 'admin',
             'email' => 'admin@app.com',
             'password' => bcrypt('12345678'),
             'email_verified_at' => now(),
         ]);
-        Role::firstOrCreate(['name' => 'Admin', 'guard_name' => $guard]);
-        $adminUser->assignRole('Admin');
+        $admin->assignRole('Admin');
 
-
-        // 3. إنشاء مستخدم Data Entry
-        $dataEntryUser = User::create([
-            'full_name' => 'Data Entry User',
-            'username' => 'dataentry',
-            'email' => 'dataentry@app.com',
+        // 3. Supervisor (مشرف وردية)
+        $supervisor = User::create([
+            'full_name' => 'مشرف الوردية الأولى',
+            'username' => 'supervisor1',
+            'email' => 'supervisor1@app.com',
             'password' => bcrypt('12345678'),
             'email_verified_at' => now(),
         ]);
-        Role::firstOrCreate(['name' => 'Data Entry', 'guard_name' => $guard]);
-        $dataEntryUser->assignRole('Data Entry');
+        $supervisor->assignRole('Supervisor');
 
-
-        // 4. إنشاء مستخدم Auditor
-        $auditorUser = User::create([
-            'full_name' => 'Auditor User',
-            'username' => 'auditor',
-            'email' => 'auditor@app.com',
+        // 4. Worker (عامل مضخة)
+        $worker = User::create([
+            'full_name' => 'العامل أحمد',
+            'username' => 'worker1',
+            'email' => 'worker1@app.com',
             'password' => bcrypt('12345678'),
             'email_verified_at' => now(),
         ]);
-        Role::firstOrCreate(['name' => 'Auditor', 'guard_name' => $guard]);
-        $auditorUser->assignRole('Auditor');
+        $worker->assignRole('Worker');
     }
 }
