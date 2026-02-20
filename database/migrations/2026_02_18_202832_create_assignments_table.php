@@ -6,47 +6,39 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
-   public function up(): void
-{
-    Schema::create('assignments', function (Blueprint $table) {
-        $table->id();
+    public function up(): void
+    {
+        Schema::create('assignments', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('shift_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('pump_id')->constrained()->cascadeOnDelete(); // المضخة بدلاً من المسدس
 
-        // الربط بالوردية العامة
-        $table->foreignId('shift_id')->constrained('shifts')->cascadeOnDelete();
+            $table->timestamp('start_at')->nullable();
+            $table->timestamp('end_at')->nullable();
 
-        // الموظف المستلم (نفترض جدول users)
-        $table->foreignId('user_id')->constrained('users');
+            // قراءات المسدس الأول (بداية ونهاية)
+            $table->decimal('start_counter_1', 10, 2)->default(0);
+            $table->decimal('end_counter_1', 10, 2)->nullable();
 
-        // المسدس المستلم
-        $table->foreignId('nozzle_id')->constrained('nozzles');
+            // قراءات المسدس الثاني (بداية ونهاية)
+            $table->decimal('start_counter_2', 10, 2)->default(0);
+            $table->decimal('end_counter_2', 10, 2)->nullable();
 
-        // التوقيت
-        $table->timestamp('start_at'); // وقت الاستلام
-        $table->timestamp('end_at')->nullable(); // وقت التسليم (فارغ في البداية)
+            // التسعير والماليات (تم زيادة الدقة للأسعار والمبالغ 10,3)
+            $table->decimal('unit_price', 10, 3)->default(0);
+            $table->decimal('expected_amount', 12, 3)->nullable(); // المبلغ المحسوب برمجياً
+            $table->decimal('cash_amount', 12, 3)->nullable();     // النقدية
+            $table->decimal('bank_amount', 12, 3)->nullable();     // الشبكة/البنك
+            $table->decimal('difference', 12, 3)->nullable();      // العجز أو الزيادة
 
-        // العدادات
-        $table->decimal('start_counter', 18, 2); // قراءة البداية (تؤخذ آلياً)
-        $table->decimal('end_counter', 18, 2)->nullable(); // قراءة النهاية (تعبأ عند التسليم)
+            $table->enum('status', ['active', 'completed'])->default('active');
 
-        // الحسابات (تعبأ عند التسليم)
-        $table->decimal('sold_liters', 18, 2)->default(0); // الفرق بين العدادين
-        $table->decimal('unit_price', 18, 3)->default(0); // سعر اللتر المعتمد في هذه الفترة
-        $table->decimal('total_amount', 18, 3)->default(0); // المبلغ المطلوب (لترات × سعر)
+            $table->timestamps();
+            $table->softDeletes();
+        });
+    }
 
-        // الحالة: نشط (يعمل الآن) أو مكتمل
-        $table->string('status')->default('active');
-
-        $table->softDeletes();
-        $table->timestamps();
-    });
-}
-
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('assignments');

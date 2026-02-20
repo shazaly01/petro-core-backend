@@ -22,8 +22,9 @@ class PumpController extends Controller
      */
     public function index()
     {
-        // جلب المضخات مع اسم الجزيرة وعدد المسدسات
-        $pumps = Pump::with(['island'])->withCount('nozzles')->paginate(10);
+        // جلب المضخات مع اسم الجزيرة والخزان ونوع الوقود (بدون المسدسات)
+        $pumps = Pump::with(['island', 'tank.fuelType'])->paginate(10);
+
         return PumpResource::collection($pumps);
     }
 
@@ -33,7 +34,10 @@ class PumpController extends Controller
     public function store(StorePumpRequest $request)
     {
         $pump = Pump::create($request->validated());
-        $pump->load('island');
+
+        // تحميل العلاقات لإعادتها في الـ Response
+        $pump->load(['island', 'tank']);
+
         return new PumpResource($pump);
     }
 
@@ -42,8 +46,8 @@ class PumpController extends Controller
      */
     public function show(Pump $pump)
     {
-        // عند عرض المضخة، أهم شيء هو عرض المسدسات التي بداخلها
-        $pump->load(['island', 'nozzles.tank.fuelType']);
+        // عرض المضخة مع الخزان التابع لها ومعلومات الوقود
+        $pump->load(['island', 'tank.fuelType']);
 
         return new PumpResource($pump);
     }
@@ -54,7 +58,9 @@ class PumpController extends Controller
     public function update(UpdatePumpRequest $request, Pump $pump)
     {
         $pump->update($request->validated());
-        $pump->load('island');
+
+        $pump->load(['island', 'tank']);
+
         return new PumpResource($pump);
     }
 
@@ -63,13 +69,15 @@ class PumpController extends Controller
      */
     public function destroy(Pump $pump)
     {
-        if ($pump->nozzles()->exists()) {
+        // 🛑 التعديل هنا: منع الحذف إذا كانت المضخة مرتبطة بتكليفات (لحفظ التاريخ المالي)
+        if ($pump->assignments()->exists()) {
             return response()->json([
-                'message' => 'لا يمكن حذف المضخة لأنها تحتوي على مسدسات.'
+                'message' => 'لا يمكن حذف المضخة لارتباطها بسجلات تكليفات وحركات مالية سابقة.'
             ], 422);
         }
 
         $pump->delete();
+
         return response()->noContent();
     }
 }

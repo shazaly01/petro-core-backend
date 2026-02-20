@@ -14,26 +14,38 @@ class Pump extends Model
 
     protected $fillable = [
         'island_id',
+        'tank_id',           // تم إضافة الخزان هنا مباشرة
         'name',
-        'code',
+        'code',              // الكود سيكون رقمي DECIMAL(18,0)
         'model',
+        'current_counter_1', // العداد التراكمي للمسدس الأول
+        'current_counter_2', // العداد التراكمي للمسدس الثاني
         'is_active',
         'notes',
+    ];
+
+    protected $casts = [
+        'code' => 'decimal:0', // ليتوافق مع الأكواد الطويلة
+        'current_counter_1' => 'decimal:2',
+        'current_counter_2' => 'decimal:2',
+        'is_active' => 'boolean',
     ];
 
     /**
      * العلاقات
      */
-
-    // المضخة تتبع جزيرة معينة
     public function island(): BelongsTo
     {
         return $this->belongsTo(Island::class);
     }
 
-    // المضخة تحتوي على عدة مسدسات
-    public function nozzles(): HasMany
+    public function tank(): BelongsTo
     {
-        return $this->hasMany(Nozzle::class);
+        return $this->belongsTo(Tank::class);
+    }
+
+    public function assignments(): HasMany
+    {
+        return $this->hasMany(Assignment::class);
     }
 }

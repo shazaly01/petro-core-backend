@@ -14,17 +14,14 @@ class StoreAssignmentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // 🛑 تم حذف shift_id لأنه سيتم تحديده تلقائياً في المتحكم
-
-            'user_id' => ['required', 'exists:users,id'], // العامل (تأتي من WorkersDropdown)
-
-            // المسدس: يجب أن يكون موجوداً
-            'nozzle_id' => ['required', 'exists:nozzles,id'],
-
+            'user_id' => ['required', 'exists:users,id'], // العامل
+            'pump_id' => ['required', 'exists:pumps,id'], // المضخة (بدلاً من المسدس)
             'start_at' => ['nullable', 'date'],
 
-            // قراءة البداية
-            'start_counter' => ['nullable', 'numeric', 'min:0'],
+            // ملاحظة: قراءات البداية سيتم سحبها تلقائياً من جدول المضخات في الـ Controller،
+            // ولكن نضعها هنا تحسباً لإرسالها من الواجهة للقراءة فقط.
+            'start_counter_1' => ['nullable', 'numeric', 'min:0'],
+            'start_counter_2' => ['nullable', 'numeric', 'min:0'],
         ];
     }
 }

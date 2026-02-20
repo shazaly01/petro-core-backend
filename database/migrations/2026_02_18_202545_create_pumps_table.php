@@ -6,32 +6,30 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
-   public function up(): void
-{
-    Schema::create('pumps', function (Blueprint $table) {
-        $table->id();
+    public function up(): void
+    {
+        Schema::create('pumps', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('island_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('tank_id')->constrained()->cascadeOnDelete(); // ربط مباشر بالخزان
 
-        // المضخة تتبع جزيرة معينة
-        $table->foreignId('island_id')->constrained('islands')->cascadeOnDelete();
+            $table->string('name');
+            // تطبيق قاعدتك: الكود عبارة عن أرقام صحيحة كبيرة
+            $table->decimal('code', 18, 0)->nullable()->unique();
+            $table->string('model')->nullable();
 
-        $table->string('name'); // مثال: مضخة 1، مضخة 2
-        $table->string('code')->nullable(); // كود تعريفي
-        $table->string('model')->nullable(); // موديل الماكينة (اختياري للصيانة)
+            // عدادات المسدسين (تمثل قراءة الماكينة باللترات)
+            $table->decimal('current_counter_1', 10, 2)->default(0);
+            $table->decimal('current_counter_2', 10, 2)->default(0);
 
-        $table->boolean('is_active')->default(true); // حالة المضخة
-        $table->text('notes')->nullable(); // ملاحظات صيانة
+            $table->boolean('is_active')->default(true);
+            $table->text('notes')->nullable();
 
-        $table->softDeletes();
-        $table->timestamps();
-    });
-}
+            $table->timestamps();
+            $table->softDeletes();
+        });
+    }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('pumps');
