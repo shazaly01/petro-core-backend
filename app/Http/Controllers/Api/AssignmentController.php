@@ -4,13 +4,15 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Assignment;
-use App\Models\Pump; // استخدمنا Pump بدلاً من Nozzle
+use App\Models\Pump;
 use App\Models\Shift;
+use App\Models\Tank;
 use App\Http\Requests\Assignment\StoreAssignmentRequest;
 use App\Http\Requests\Assignment\UpdateAssignmentRequest;
 use App\Http\Resources\AssignmentResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 
 class AssignmentController extends Controller
 {
@@ -21,55 +23,54 @@ class AssignmentController extends Controller
 
     public function index()
     {
-        // جلب التكليفات مع الموظف والمضخة (بدون مسدسات ولا معاملات)
+        $activeShift = Shift::where('supervisor_id', Auth::id())
+                            ->where('status', 'open')
+                            ->first();
+
+        if (!$activeShift) {
+            return AssignmentResource::collection(Assignment::where('id', 0)->paginate(15));
+        }
+
         $assignments = Assignment::with(['user', 'pump.island', 'pump.tank.fuelType'])
+            ->where('shift_id', $activeShift->id)
             ->latest()
             ->paginate(15);
 
         return AssignmentResource::collection($assignments);
     }
 
-    /**
-     * فتح وردية / إنشاء تكليف
-     */
     public function store(StoreAssignmentRequest $request)
     {
         $data = $request->validated();
 
-        // 1. البحث عن الوردية المفتوحة حالياً
-        $activeShift = Shift::where('status', 'open')->first();
+        $activeShift = Shift::where('supervisor_id', Auth::id())
+                            ->where('status', 'open')
+                            ->first();
 
         if (!$activeShift) {
             return response()->json([
-                'message' => 'لا توجد وردية مفتوحة حالياً. يرجى فتح وردية أولاً للتمكن من إضافة تكليفات.'
+                'message' => 'عفواً، ليس لديك وردية مفتوحة حالياً. يرجى فتح وردية للبدء بإضافة التكليفات.'
             ], 422);
         }
 
         $data['shift_id'] = $activeShift->id;
+        $data['supervisor_id'] = Auth::id();
 
-        // 2. جلب بيانات المضخة للتأكد من حالتها
         $pump = Pump::with('tank.fuelType')->findOrFail($data['pump_id']);
 
-        // التحقق: هل المضخة مشغولة حالياً مع عامل آخر؟
         $activeAssignment = Assignment::where('pump_id', $pump->id)
             ->where('status', 'active')
             ->exists();
 
         if ($activeAssignment) {
-            return response()->json(['message' => 'هذه المضخة مشغولة حالياً مع عامل آخر.'], 422);
+            return response()->json(['message' => 'هذه المضخة مشغولة حالياً في تكليف آخر لم يتم إغلاقه.'], 422);
         }
 
-        // 3. تحديد قراءات البداية للمسدسين تلقائياً من جدول المضخة
         $data['start_counter_1'] = $data['start_counter_1'] ?? $pump->current_counter_1;
         $data['start_counter_2'] = $data['start_counter_2'] ?? $pump->current_counter_2;
-
-        if (!isset($data['start_at'])) {
-            $data['start_at'] = now();
-        }
-
+        $data['start_at'] = now();
         $data['status'] = 'active';
 
-        // 4. أخذ السعر الرسمي للوقود لحظة فتح الوردية وحفظه لمنع تأثير تغير الأسعار لاحقاً
         $data['unit_price'] = $pump->tank && $pump->tank->fuelType
             ? round($pump->tank->fuelType->current_price, 3)
             : 0;
@@ -81,28 +82,24 @@ class AssignmentController extends Controller
 
     public function show(Assignment $assignment)
     {
-        $assignment->load(['user', 'pump', 'shift']);
+        $assignment->load(['user', 'pump.tank.fuelType', 'shift']);
         return new AssignmentResource($assignment);
     }
 
     /**
-     * إنهاء التكليف (حساب العدادات، الفروقات، تحديث المضخة والخزان)
-     */
-    /**
-     * إنهاء التكليف أو تعديل تكليف مغلق مسبقاً
+     * إنهاء التكليف أو تعديل تكليف مغلق مسبقاً (مع تسجيل حركة المخزون)
      */
     public function update(UpdateAssignmentRequest $request, Assignment $assignment)
     {
         $data = $request->validated();
 
-        // هل نحن نقوم بإغلاق التكليف الآن؟ أو نعدل على تكليف مغلق مسبقاً؟
         $isClosing = (isset($data['status']) && $data['status'] === 'completed' && $assignment->status === 'active');
         $isUpdatingClosed = ($assignment->status === 'completed');
 
         if ($isClosing || $isUpdatingClosed) {
             DB::beginTransaction();
             try {
-                // 1. حساب اللترات
+                // 1. حساب اللترات المباعة
                 $end1 = $data['end_counter_1'] ?? $assignment->end_counter_1;
                 $end2 = $data['end_counter_2'] ?? $assignment->end_counter_2;
 
@@ -119,17 +116,42 @@ class AssignmentController extends Controller
                 $expectedAmount = $totalSoldLiters * $assignment->unit_price;
                 $cashAmount = $data['cash_amount'] ?? $assignment->cash_amount ?? 0;
                 $bankAmount = $data['bank_amount'] ?? $assignment->bank_amount ?? 0;
-
                 $difference = ($cashAmount + $bankAmount) - $expectedAmount;
 
-                // 3. تحديث الخزان (إرجاع الكمية القديمة وخصم الجديدة في حالة التعديل)
-                $tank = $assignment->pump->tank;
+                // 3. تحديث الخزان وحركة المخزون (دفتر الأستاذ)
+                $tank = Tank::find($assignment->pump->tank_id);
+
                 if ($tank) {
+                    // إذا كان التكليف مغلقاً مسبقاً ونحن نعدله الآن (إلغاء العملية القديمة)
                     if ($isUpdatingClosed) {
                         $oldTotalSold = ($assignment->end_counter_1 - $assignment->start_counter_1) + ($assignment->end_counter_2 - $assignment->start_counter_2);
-                        $tank->increment('current_stock', $oldTotalSold); // إرجاع القديم
+
+                        // إرجاع الكمية القديمة للخزان
+                        $tank->increment('current_stock', $oldTotalSold);
+
+                        // حذف السطر القديم من دفتر حركة المخزون
+                        if ($assignment->stockMovement) {
+                            $assignment->stockMovement()->delete();
+                        }
                     }
-                    $tank->decrement('current_stock', $totalSoldLiters); // خصم الجديد
+
+                    // 🛑 تسجيل العملية الجديدة النظيفة
+                    $balanceBefore = $tank->fresh()->current_stock;
+                    $balanceAfter = $balanceBefore - $totalSoldLiters;
+
+                    // خصم الكمية الجديدة من الخزان
+                    $tank->update(['current_stock' => $balanceAfter]);
+
+                    // كتابة سطر جديد تماماً في دفتر المخزون
+                    $assignment->stockMovement()->create([
+                        'tank_id' => $tank->id,
+                        'type' => 'out', // نوع الحركة: خروج (مبيعات)
+                        'quantity' => $totalSoldLiters,
+                        'balance_before' => $balanceBefore,
+                        'balance_after' => $balanceAfter,
+                        'user_id' => Auth::id(),
+                        'notes' => 'مبيعات وردية - تكليف رقم: ' . $assignment->id . ($isUpdatingClosed ? ' (معدل)' : ''),
+                    ]);
                 }
 
                 // 4. تحديث العداد التراكمي للمضخة
@@ -157,19 +179,19 @@ class AssignmentController extends Controller
                 return response()->json(['message' => 'حدث خطأ أثناء المعالجة: ' . $e->getMessage()], 422);
             }
         } else {
-            // تحديث عادي للبيانات (إذا لم يكن إغلاق)
+            // تحديث عادي للبيانات الوصفية (إذا لم يكن إغلاق)
             $assignment->update($data);
         }
 
-        return new AssignmentResource($assignment);
+        return new AssignmentResource($assignment->fresh(['user', 'pump.tank.fuelType', 'shift']));
     }
-
 
     public function destroy(Assignment $assignment)
     {
         if ($assignment->status === 'completed') {
-            return response()->json(['message' => 'لا يمكن حذف تكليف مكتمل ومحسوب مالياً.'], 422);
+            return response()->json(['message' => 'لا يمكن حذف تكليف مكتمل ومحسوب مالياً. قم بتعديل العدادات لتصفيره بدلاً من ذلك.'], 422);
         }
+
         $assignment->delete();
         return response()->noContent();
     }

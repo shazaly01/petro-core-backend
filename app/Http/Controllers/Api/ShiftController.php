@@ -19,37 +19,52 @@ class ShiftController extends Controller
 
     public function index()
     {
-        // عرض الورديات مرتبة من الأحدث للأقدم
-        $shifts = Shift::with('supervisor')->latest()->paginate(10);
+        // 🛑 العزل التام: عرض الورديات الخاصة بالمستخدم (المشرف) الحالي فقط
+        $shifts = Shift::with('supervisor')
+            ->where('supervisor_id', Auth::id())
+            ->latest()
+            ->paginate(10);
+
         return ShiftResource::collection($shifts);
     }
 
- public function store(StoreShiftRequest $request)
-{
-    // 1. تجهيز البيانات التي تم التحقق منها
-    $data = $request->validated();
+    public function store(StoreShiftRequest $request)
+    {
+        // 🛑 الحماية 1: التحقق من عدم وجود وردية مفتوحة مسبقاً لنفس المستخدم
+        $hasOpenShift = Shift::where('supervisor_id', Auth::id())
+                             ->where('status', 'open')
+                             ->exists();
 
-    // 2. ضبط المشرف إجبارياً من النظام (أمان تام)
-    $data['supervisor_id'] = Auth::id();
+        if ($hasOpenShift) {
+            return response()->json([
+                'message' => 'عفواً، لديك وردية مفتوحة بالفعل. يجب إغلاقها وتصفية عهدتها أولاً قبل فتح وردية جديدة.'
+            ], 422);
+        }
 
-    // 3. ضبط وقت البدء
-    if (!isset($data['start_at'])) {
-        $data['start_at'] = now();
+        // 1. تجهيز البيانات التي تم التحقق منها
+        $data = $request->validated();
+
+        // 2. ضبط المشرف إجبارياً من النظام (أمان تام)
+        $data['supervisor_id'] = Auth::id();
+
+        // 3. ضبط وقت البدء
+        if (!isset($data['start_at'])) {
+            $data['start_at'] = now();
+        }
+
+        // 4. تحديد الحالة "مفتوحة" يدوياً
+        $data['status'] = 'open';
+
+        // 5. إنشاء الوردية
+        $shift = Shift::create($data);
+
+        return new ShiftResource($shift);
     }
-
-    // 4. تحديد الحالة "مفتوحة" يدوياً
-    $data['status'] = 'open';
-
-    // 5. إنشاء الوردية
-    $shift = Shift::create($data);
-
-    return new ShiftResource($shift);
-}
 
     public function show(Shift $shift)
     {
-        // عند عرض الوردية، نعرض المشرف والتكليفات المرتبطة بها
-        $shift->load(['supervisor', 'assignments.user', 'assignments.nozzle']);
+        // 🛑 التعديل هنا: جلب بيانات المضخة بدلاً من المسدس (حسب الهيكلة الجديدة)
+        $shift->load(['supervisor', 'assignments.user', 'assignments.pump']);
         return new ShiftResource($shift);
     }
 
@@ -59,13 +74,18 @@ class ShiftController extends Controller
 
         // منطق إغلاق الوردية
         if (isset($data['status']) && $data['status'] === 'closed' && $shift->status === 'open') {
+
+            // 🛑 الحماية 2: منع إغلاق الوردية إذا كان هناك تكليفات (مضخات) لم يتم إغلاقها!
+            if ($shift->assignments()->where('status', 'active')->exists()) {
+                 return response()->json([
+                     'message' => 'لا يمكن إغلاق الوردية لوجود تكليفات (مضخات) قيد العمل. الرجاء إغلاق جميع التكليفات وتسويتها أولاً.'
+                 ], 422);
+            }
+
             // إذا لم يحدد وقت الإغلاق، نضعه الآن
             if (!isset($data['end_at'])) {
                 $data['end_at'] = now();
             }
-
-            // هنا يمكن إضافة منطق للتحقق من أن جميع التكليفات (Assignments) مغلقة أيضاً
-            // if ($shift->assignments()->where('status', 'active')->exists()) { ... }
         }
 
         $shift->update($data);

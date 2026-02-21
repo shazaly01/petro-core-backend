@@ -45,4 +45,11 @@ class SupplyLog extends Model
     {
         return $this->belongsTo(User::class, 'supervisor_id');
     }
+
+
+    // جلب حركة المخزون الناتجة عن عملية التوريد هذه
+    public function stockMovement()
+    {
+        return $this->morphOne(StockMovement::class, 'trackable');
+    }
 }

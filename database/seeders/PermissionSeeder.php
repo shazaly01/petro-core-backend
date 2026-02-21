@@ -16,7 +16,7 @@ class PermissionSeeder extends Seeder
 
         $guardName = 'api';
 
-        // 2. قائمة الصلاحيات الشاملة
+        // 2. قائمة الصلاحيات الشاملة (تم إضافة حركات المخزون والتسويات)
         $permissions = [
             'dashboard.view', 'reports.view',
             'user.view', 'user.create', 'user.update', 'user.delete',
@@ -27,6 +27,9 @@ class PermissionSeeder extends Seeder
             'supply.view', 'supply.create', 'supply.update', 'supply.delete',
             'transaction.view', 'transaction.create', 'transaction.update', 'transaction.delete',
             'setting.view', 'setting.update',
+            // 🛑 الصلاحيات الجديدة الخاصة بالمخزون والتسويات الجردية
+            'inventory_adjustment.view', 'inventory_adjustment.create', 'inventory_adjustment.update', 'inventory_adjustment.delete',
+            'stock_movement.view', // عرض دفتر الأستاذ (كشف حساب الخزان)
         ];
 
         foreach ($permissions as $permission) {
@@ -51,6 +54,9 @@ class PermissionSeeder extends Seeder
             'supply.view', 'supply.create',
             'transaction.view', 'transaction.create',
             'infrastructure.view', // مشاهدة هيكل المحطة فقط
+            // 🛑 صلاحيات الجرد للمشرف (رؤية وإنشاء فقط، بدون حذف أو تعديل)
+            'inventory_adjustment.view', 'inventory_adjustment.create',
+            'stock_movement.view', // السماح له برؤية حركة الخزان
         ]);
 
         // د. Worker: عامل المضخة

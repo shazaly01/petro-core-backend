@@ -25,30 +25,43 @@ class SupplyLogController extends Controller
     }
 
     /**
-     * تسجيل عملية توريد جديدة (تفريغ شاحنة)
+     * تسجيل عملية توريد جديدة (تفريغ شاحنة) وإنشاء حركة مخزون
      */
     public function store(StoreSupplyLogRequest $request)
     {
         $data = $request->validated();
 
         // تسجيل المشرف الحالي إذا لم يحدد
-        if (!isset($data['supervisor_id'])) {
-            $data['supervisor_id'] = Auth::id();
-        }
+        $data['supervisor_id'] = Auth::id();
 
         DB::beginTransaction();
         try {
-            // 1. إنشاء سجل التوريد
-            $supplyLog = SupplyLog::create($data);
+            // 1. جلب الخزان لمعرفة الرصيد قبل التوريد
+            $tank = Tank::findOrFail($data['tank_id']);
+            $balanceBefore = $tank->current_stock;
+            $quantity = $data['quantity'];
+            $balanceAfter = $balanceBefore + $quantity;
 
             // 2. تحديث مخزون الخزان (زيادة الكمية)
-            $tank = Tank::findOrFail($data['tank_id']);
-            $tank->increment('current_stock', $data['quantity']);
+            $tank->update(['current_stock' => $balanceAfter]);
 
-            // (اختياري) تحديث قراءة المسطرة بعد التفريغ في السجل إذا لم تكن موجودة
-            if (!isset($data['stock_after'])) {
-                $supplyLog->update(['stock_after' => $tank->current_stock]);
-            }
+            // 3. توثيق أرصدة المسطرة (قبل وبعد) في بيانات التوريد
+            $data['stock_before'] = $data['stock_before'] ?? $balanceBefore;
+            $data['stock_after'] = $data['stock_after'] ?? $balanceAfter;
+
+            // 4. إنشاء سجل التوريد الأساسي
+            $supplyLog = SupplyLog::create($data);
+
+            // 5. 🛑 [السحر هنا] إنشاء حركة المخزون (دفتر الأستاذ) أوتوماتيكياً
+            $supplyLog->stockMovement()->create([
+                'tank_id' => $tank->id,
+                'type' => 'in', // نوع الحركة: دخول
+                'quantity' => $quantity,
+                'balance_before' => $balanceBefore,
+                'balance_after' => $balanceAfter,
+                'user_id' => Auth::id(),
+                'notes' => 'توريد وقود - فاتورة رقم: ' . ($data['invoice_number'] ?? 'غير محدد'),
+            ]);
 
             DB::commit();
 
@@ -66,37 +79,83 @@ class SupplyLogController extends Controller
     }
 
     /**
-     * تعديل سجل التوريد (للتصحيح فقط)
+     * تعديل سجل التوريد (للتصحيح الوصفي فقط)
      */
-    public function update(UpdateSupplyLogRequest $request, SupplyLog $supplyLog)
+   /**
+     * تعديل سجل التوريد (بطريقة الإلغاء وإعادة الإدخال - Reverse & Re-enter)
+     */
+  public function update(UpdateSupplyLogRequest $request, SupplyLog $supplyLog)
     {
-        // ملاحظة: تعديل الكمية هنا قد يتطلب منطقاً معقداً لتعديل المخزون بأثر رجعي
-        // للتبسيط، سنسمح بتعديل البيانات الوصفية (مثل اسم السائق)
-        // أما الكمية فنتركها كما هي أو نطلب حذف السجل وإعادة إنشائه لضمان سلامة المخزون.
+        $data = $request->validated();
 
-        $supplyLog->update($request->validated());
-        return new SupplyLogResource($supplyLog);
+        // الحماية: منع تعديل هوية المشرف الأصلي
+        unset($data['supervisor_id']);
+
+        DB::beginTransaction();
+        try {
+            // 1. عكس العملية القديمة: خصم الكمية القديمة من الخزان القديم
+            $oldTank = Tank::findOrFail($supplyLog->tank_id);
+            $oldTank->decrement('current_stock', $supplyLog->quantity);
+
+            // 2. حذف حركة المخزون القديمة
+            if ($supplyLog->stockMovement) {
+                $supplyLog->stockMovement()->delete();
+            }
+
+            // 3. 🛑 تحديث بيانات التوريد (هنا سيتم حفظ قراءات المسطرة الجديدة التي أدخلتها أنت بالواجهة)
+            $supplyLog->update($data);
+
+            // 4. تنفيذ العملية الجديدة محاسبياً
+            $newTank = Tank::findOrFail($supplyLog->tank_id);
+            $balanceBefore = $newTank->current_stock; // الرصيد الدفتري
+            $balanceAfter = $balanceBefore + $supplyLog->quantity;
+
+            // تحديث رصيد الخزان
+            $newTank->update(['current_stock' => $balanceAfter]);
+
+            // 5. إنشاء حركة مخزون جديدة تماماً في الدفتر (بالأرصدة المحاسبية الدقيقة للنظام)
+            $supplyLog->stockMovement()->create([
+                'tank_id' => $newTank->id,
+                'type' => 'in',
+                'quantity' => $supplyLog->quantity,
+                'balance_before' => $balanceBefore,
+                'balance_after' => $balanceAfter,
+                'user_id' => Auth::id(),
+                'notes' => 'توريد وقود (معدل) - فاتورة رقم: ' . ($supplyLog->invoice_number ?? 'غير محدد'),
+            ]);
+
+            DB::commit();
+
+            return new SupplyLogResource($supplyLog->fresh(['tank.fuelType', 'supervisor']));
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'عفواً، حدث خطأ أثناء التعديل: ' . $e->getMessage()], 422);
+        }
     }
 
     /**
-     * حذف سجل توريد (يجب خصم الكمية من الخزان مرة أخرى)
+     * حذف سجل توريد (خصم الكمية وحذف الحركة)
      */
     public function destroy(SupplyLog $supplyLog)
     {
         DB::beginTransaction();
         try {
-            // خصم الكمية التي أضيفت خطأً
             $tank = $supplyLog->tank;
 
-            // التأكد من أن الخصم لن يجعل المخزون بالسالب (نظرياً)
+            // 1. خصم الكمية التي أضيفت خطأً من الخزان
             if ($tank->current_stock >= $supplyLog->quantity) {
                 $tank->decrement('current_stock', $supplyLog->quantity);
             } else {
-                // في حالة نادرة: تم بيع الوقود بالفعل!
-                // هنا نقوم بتصفير المخزون أو تسجيل عجز، حسب السياسة.
                 $tank->update(['current_stock' => 0]);
             }
 
+            // 2. 🛑 حذف حركة المخزون المرتبطة بهذا التوريد من دفتر الأستاذ
+            if ($supplyLog->stockMovement) {
+                $supplyLog->stockMovement()->delete();
+            }
+
+            // 3. حذف سجل التوريد نفسه
             $supplyLog->delete();
 
             DB::commit();

@@ -18,7 +18,7 @@ use App\Http\Controllers\Api\TransactionController;
 use App\Http\Controllers\Api\SupplyLogController;
 use App\Http\Controllers\Api\DashboardController; // تأكد من وجوده أو قم بإنشائه لاحقاً
 use App\Http\Controllers\Api\ReportController;
-
+use App\Http\Controllers\Api\InventoryAdjustmentController;
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -78,6 +78,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // سجل التوريدات (تعبئة الخزانات)
     Route::apiResource('supply-logs', SupplyLogController::class);
+    Route::apiResource('inventory-adjustments', InventoryAdjustmentController::class);
 
 
     // --- د. التقارير والإحصائيات (Reports & Dashboard) ---
@@ -85,6 +86,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
 
     Route::get('/reports/daily-movement', [ReportController::class, 'dailyMovement']);
+    Route::get('/reports/tank-ledger', [ReportController::class, 'tankLedger']);
 
 
 

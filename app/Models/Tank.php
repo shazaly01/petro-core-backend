@@ -42,4 +42,10 @@ class Tank extends Model
     {
         return $this->hasMany(SupplyLog::class);
     }
+
+
+    public function stockMovements()
+    {
+        return $this->hasMany(StockMovement::class);
+    }
 }

@@ -60,3 +60,4 @@ class NozzleController extends Controller
         return response()->noContent();
     }
 }
+

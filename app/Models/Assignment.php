@@ -69,4 +69,11 @@ class Assignment extends Model
     {
         return $this->belongsTo(Pump::class);
     }
+
+
+    // جلب حركة المخزون الناتجة عن إغلاق هذا التكليف
+    public function stockMovement()
+    {
+        return $this->morphOne(StockMovement::class, 'trackable');
+    }
 }
