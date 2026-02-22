@@ -89,6 +89,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/reports/tank-ledger', [ReportController::class, 'tankLedger']);
     Route::get('reports/fuel-reconciliation', [ReportController::class, 'dailyFuelReconciliation']);
     Route::get('reports/tanks-stock', [ReportController::class, 'tanksStockSummary']);
+    Route::get('reports/shift-details', [ReportController::class, 'shiftDetails']);
 
 
 

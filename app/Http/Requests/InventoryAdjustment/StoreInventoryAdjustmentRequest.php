@@ -1,5 +1,5 @@
 <?php
-
+//app\Http\Requests\InventoryAdjustment\StoreInventoryAdjustmentRequest.php
 namespace App\Http\Requests\InventoryAdjustment;
 
 use Illuminate\Foundation\Http\FormRequest;

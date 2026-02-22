@@ -333,4 +333,80 @@ class ReportController extends Controller
             'summary_by_fuel' => $summaryByFuel
         ]);
     }
-}
+
+
+
+    /**
+     * تقرير تفاصيل الورديات والتكليفات
+     */
+    public function shiftDetails(Request $request)
+    {
+        abort_if(!auth()->user()->can('reports.view'), 403, 'غير مصرح لك بعرض هذا التقرير');
+
+        $request->validate(['date' => 'nullable|date']);
+
+        $date = $request->date ? \Carbon\Carbon::parse($request->date)->toDateString() : now()->toDateString();
+
+        // 🛑 التعديل 1: استخدام أسماء العلاقات والأعمدة الصحيحة (assignments.user) و (start_at)
+        $shifts = \App\Models\Shift::with([
+            'assignments.user',
+            'assignments.pump.tank.fuelType'
+        ])
+        ->whereDate('start_at', $date)
+        ->orWhereDate('end_at', $date)
+        ->orderBy('start_at', 'asc')
+        ->get()
+        ->map(function ($shift) {
+
+            $shiftTotalLiters = 0;
+            $shiftTotalAmount = 0;
+
+            $assignments = $shift->assignments->map(function ($assignment) use (&$shiftTotalLiters, &$shiftTotalAmount) {
+
+                // حساب اللترات من العدادين (مع تجنب القيم الفارغة)
+                $liters1 = max(0, $assignment->end_counter_1 - $assignment->start_counter_1);
+                $liters2 = max(0, $assignment->end_counter_2 - $assignment->start_counter_2);
+                $totalLiters = $liters1 + $liters2;
+
+                // المبلغ = اللترات * سعر الوحدة
+                $totalAmount = $totalLiters * $assignment->unit_price;
+
+                $shiftTotalLiters += $totalLiters;
+                $shiftTotalAmount += $totalAmount;
+
+                return [
+                    'id' => $assignment->id,
+                    // 🛑 التعديل 2: جلب اسم العامل من علاقة user
+                    'worker_name' => $assignment->user->full_name ?? 'غير محدد',
+                    'pump_name' => $assignment->pump->name ?? 'غير محدد',
+                    'fuel_type' => $assignment->pump->tank->fuelType->name ?? 'غير محدد',
+                    'start_counter_1' => $assignment->start_counter_1,
+                    'end_counter_1' => $assignment->end_counter_1,
+                    'start_counter_2' => $assignment->start_counter_2,
+                    'end_counter_2' => $assignment->end_counter_2,
+                    'total_liters' => $totalLiters,
+                    'unit_price' => $assignment->unit_price,
+                    'total_amount' => $totalAmount,
+                    'status' => $assignment->status, // active, completed
+                ];
+            });
+
+            return [
+                'id' => $shift->id,
+                // 🛑 التعديل 3: الاستفادة من الخاصية name المضافة في مودل Shift
+                'shift_name' => $shift->name,
+                'start_time' => $shift->start_at,
+                'end_time' => $shift->end_at,
+                'status' => $shift->status, // open, closed
+                'total_liters' => $shiftTotalLiters,
+                'total_amount' => $shiftTotalAmount,
+                'assignments' => $assignments
+            ];
+        });
+
+        return response()->json([
+            'date' => $date,
+            'shifts' => $shifts
+        ]);
+    }
+    }
