@@ -24,7 +24,6 @@ class AuthServiceProvider extends ServiceProvider
      */
     protected $policies = [
         // تسجيل الـ Policies التي كانت موجودة
-        Company::class => CompanyPolicy::class,
         // --- بداية التعديل: تسجيل الـ Policies الجديدة ---
         User::class => UserPolicy::class,
         Role::class => RolePolicy::class,

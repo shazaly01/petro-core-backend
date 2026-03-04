@@ -14,23 +14,28 @@ class StoreSupplyLogRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // الخزان الذي تم تفريغ الشحنة فيه
             'tank_id' => ['required', 'integer', 'exists:tanks,id'],
-
-            // الكمية المفرغة (يجب أن تكون قيمة موجبة)
             'quantity' => ['required', 'numeric', 'min:1'],
-
-            // سعر الشراء/التكلفة (اختياري، للتقارير المالية)
             'cost_price' => ['nullable', 'numeric', 'min:0'],
 
-            // بيانات الشاحنة والسائق (للتوثيق)
-            'driver_name' => ['nullable', 'string', 'max:255'],
-            'truck_plate_number' => ['nullable', 'string', 'max:50'],
-            'invoice_number' => ['nullable', 'string', 'max:100'], // رقم فاتورة المصدر
+            // تم تغيير القواعد هنا لتصبح إجبارية (required)
+            'driver_name' => ['required', 'string', 'max:255'],
+            'truck_plate_number' => ['required', 'string', 'max:50'],
 
-            // قراءة المسطرة قبل وبعد (اختياري)
+            'invoice_number' => ['nullable', 'string', 'max:100'],
             'stock_before' => ['nullable', 'numeric', 'min:0'],
-            'stock_after' => ['nullable', 'numeric', 'gte:stock_before'], // يجب أن يكون "بعد" أكبر من أو يساوي "قبل"
+            'stock_after' => ['nullable', 'numeric', 'gte:stock_before'],
+        ];
+    }
+
+    /**
+     * تخصيص رسائل الخطأ لتظهر بشكل واضح للمستخدم
+     */
+    public function messages(): array
+    {
+        return [
+            'driver_name.required' => 'يرجى إدخال اسم السائق، هذا الحقل مطلوب.',
+            'truck_plate_number.required' => 'يرجى إدخال رقم لوحة الشاحنة، هذا الحقل مطلوب.',
         ];
     }
 }

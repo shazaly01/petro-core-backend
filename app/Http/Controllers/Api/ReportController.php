@@ -7,6 +7,7 @@ use App\Models\StockMovement;
 use App\Models\Tank;
 use App\Models\Assignment;
 use App\Models\SupplyLog;
+use App\Models\Expense;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -77,23 +78,30 @@ class ReportController extends Controller
         ]);
     }
 
-    /**
-     * تقرير الحركة اليومية (ملخص المبيعات، التوريدات، والمالية ليوم محدد)
+ /**
+     * تقرير حركة المحطة (ملخص المبيعات، التوريدات، والمالية لفترة محددة)
      */
     public function dailyMovement(Request $request)
     {
+        // 1. التحقق من المدخلات الجديدة (تاريخ البداية والنهاية)
         $request->validate([
-            'date' => 'nullable|date',
+            'start_date' => 'nullable|date',
+            'end_date'   => 'nullable|date|after_or_equal:start_date', // التأكد أن النهاية بعد أو تساوي البداية
         ]);
 
-        // تحديد اليوم المطلوب (أو اليوم الحالي افتراضياً)
-        $date = $request->date ? Carbon::parse($request->date)->startOfDay() : now()->startOfDay();
-        $endDate = $date->copy()->endOfDay();
+        // 2. تحديد نطاق التاريخ
+        $start = $request->start_date
+            ? Carbon::parse($request->start_date)->startOfDay()
+            : now()->startOfDay();
 
-        // 1. ملخص المبيعات والمالية (من التكليفات المكتملة في هذا اليوم)
+        $end = $request->end_date
+            ? Carbon::parse($request->end_date)->endOfDay()
+            : now()->endOfDay();
+
+        // 3. ملخص المبيعات والمالية (من التكليفات المكتملة ضمن النطاق الزمني)
         $assignments = Assignment::with(['pump.tank.fuelType'])
             ->where('status', 'completed')
-            ->whereBetween('end_at', [$date, $endDate])
+            ->whereBetween('end_at', [$start, $end])
             ->get();
 
         $totalExpectedAmount = $assignments->sum('expected_amount');
@@ -118,9 +126,9 @@ class ReportController extends Controller
             $salesByFuel[$fuelName]['amount'] += ($soldLiters * $assignment->unit_price);
         }
 
-        // 2. ملخص التوريدات (الوقود الوارد للمحطة في هذا اليوم)
+        // 4. ملخص التوريدات (الوقود الوارد للمحطة ضمن النطاق الزمني)
         $supplies = SupplyLog::with(['tank.fuelType'])
-            ->whereBetween('created_at', [$date, $endDate])
+            ->whereBetween('created_at', [$start, $end])
             ->get();
 
         $suppliesByFuel = [];
@@ -132,7 +140,30 @@ class ReportController extends Controller
             $suppliesByFuel[$fuelName] += $supply->quantity;
         }
 
-        // 3. حالة الخزانات اللحظية (كميات الوقود المتوفرة الآن)
+        // ========================================================
+        // --- 5. إضافة المصروفات (الجزء الجديد) ---
+        // ========================================================
+        $expenses = Expense::with('shift')
+            ->whereBetween('spent_at', [$start, $end])
+            ->get();
+
+        // إجمالي المصروفات كرقم واحد
+        $totalExpenses = $expenses->sum('amount');
+
+        // تجهيز قائمة المصروفات لعرضها في التقرير (المبلغ، البيان، الوردية)
+        $expensesList = $expenses->map(function ($expense) {
+            return [
+                'id' => $expense->id,
+                'amount' => (float) $expense->amount,
+                'description' => $expense->description,
+                // بفرض أن مودل Shift يحتوي على حقل name، إذا كان حقلاً آخر مثل shift_number يرجى تعديله
+                'shift_name' => $expense->shift->name ?? 'غير محدد',
+                'spent_at' => $expense->spent_at->format('Y-m-d H:i'),
+            ];
+        });
+        // ========================================================
+
+        // 6. حالة الخزانات اللحظية
         $tanksStatus = Tank::with('fuelType')->get()->map(function ($tank) {
             return [
                 'id' => $tank->id,
@@ -140,36 +171,32 @@ class ReportController extends Controller
                 'fuel_type' => $tank->fuelType->name ?? 'غير محدد',
                 'capacity' => (float) $tank->capacity,
                 'current_stock' => (float) $tank->current_stock,
-                // نسبة الامتلاء لتسهيل رسمها بيانياً في الواجهة
                 'fill_percentage' => $tank->capacity > 0 ? round(($tank->current_stock / $tank->capacity) * 100, 2) : 0,
             ];
         });
 
+        // 7. تجهيز نص التاريخ لعرضه في الواجهة الأمامية
+        $dateRangeText = $start->isSameDay($end)
+            ? $start->format('Y-m-d')
+            : 'من ' . $start->format('Y-m-d') . ' إلى ' . $end->format('Y-m-d');
+
         return response()->json([
-            'date' => $date->toDateString(),
+            'date' => $dateRangeText,
             'financial_summary' => [
                 'total_expected' => (float) $totalExpectedAmount,
                 'total_cash' => (float) $totalCash,
                 'total_bank' => (float) $totalBank,
                 'total_difference' => (float) $totalDifference,
+                // تمت إضافة إجمالي المصروفات للملخص المالي
+                'total_expenses' => (float) $totalExpenses,
             ],
             'sales_by_fuel' => $salesByFuel,
             'supplies_by_fuel' => $suppliesByFuel,
+            // تمت إضافة قائمة المصروفات
+            'expenses_list' => $expensesList,
             'tanks_status' => $tanksStatus,
         ]);
     }
-
-    private function translateType($type)
-    {
-        $types = [
-            'in' => 'توريد وقود (+)',
-            'out' => 'مبيعات وردية (-)',
-            'adjustment' => 'تسوية جردية (+/-)'
-        ];
-        return $types[$type] ?? $type;
-    }
-
-
 
     /**
      * تقرير نموذج حركة المبيعات اليومية (ميزان المراجعة)

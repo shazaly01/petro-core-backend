@@ -23,6 +23,7 @@ class PermissionSeeder extends Seeder
             'role.view', 'role.create', 'role.update', 'role.delete',
             'infrastructure.view', 'infrastructure.create', 'infrastructure.update', 'infrastructure.delete',
             'shift.view', 'shift.create', 'shift.close', 'shift.delete',
+            'expense.view', 'expense.create', 'expense.update', 'expense.delete',
             'assignment.view', 'assignment.create', 'assignment.update', 'assignment.delete',
             'supply.view', 'supply.create', 'supply.update', 'supply.delete',
             'transaction.view', 'transaction.create', 'transaction.update', 'transaction.delete',
@@ -50,6 +51,7 @@ class PermissionSeeder extends Seeder
         $supervisorRole->syncPermissions([
             'dashboard.view', 'reports.view',
             'shift.view', 'shift.create', 'shift.close',
+            'expense.view', 'expense.create',
             'assignment.view', 'assignment.create', 'assignment.update',
             'supply.view', 'supply.create',
             'transaction.view', 'transaction.create',

@@ -17,11 +17,22 @@ class UpdateSupplyLogRequest extends FormRequest
             'tank_id' => ['sometimes', 'integer', 'exists:tanks,id'],
             'quantity' => ['sometimes', 'numeric', 'min:1'],
             'cost_price' => ['nullable', 'numeric', 'min:0'],
-            'driver_name' => ['nullable', 'string', 'max:255'],
-            'truck_plate_number' => ['nullable', 'string', 'max:50'],
+
+            // جعل الحقول إجبارية أيضاً عند التحديث لمنع حذف البيانات الموجودة
+            'driver_name' => ['required', 'string', 'max:255'],
+            'truck_plate_number' => ['required', 'string', 'max:50'],
+
             'invoice_number' => ['nullable', 'string', 'max:100'],
             'stock_before' => ['nullable', 'numeric', 'min:0'],
             'stock_after' => ['nullable', 'numeric', 'gte:stock_before'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'driver_name.required' => 'اسم السائق مطلوب ولا يمكن تركه فارغاً.',
+            'truck_plate_number.required' => 'رقم لوحة الشاحنة مطلوب ولا يمكن تركه فارغاً.',
         ];
     }
 }
