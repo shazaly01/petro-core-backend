@@ -20,6 +20,12 @@ use App\Http\Controllers\Api\DashboardController; // تأكد من وجوده أ
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\InventoryAdjustmentController;
 use App\Http\Controllers\Api\ExpenseController;
+// احذف هذا السطر:
+// use App\Http\Controllers\Api\ExpenseController;
+
+// وأضف هذين السطرين:
+use App\Http\Controllers\Api\VoucherController;
+use App\Http\Controllers\SafeController; // أو حسب المسار الذي وضعت فيه هذا المتحكم
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -80,8 +86,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // سجل التوريدات (تعبئة الخزانات)
     Route::apiResource('supply-logs', SupplyLogController::class);
     Route::apiResource('inventory-adjustments', InventoryAdjustmentController::class);
-    Route::apiResource('expenses', ExpenseController::class);
-
+    Route::apiResource('vouchers', VoucherController::class);
+    Route::apiResource('safes', SafeController::class);
 
     // --- د. التقارير والإحصائيات (Reports & Dashboard) ---
     // إذا لم نقم بإنشاء DashboardController بعد، يمكنك تعليق هذا السطر
@@ -92,6 +98,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('reports/fuel-reconciliation', [ReportController::class, 'dailyFuelReconciliation']);
     Route::get('reports/tanks-stock', [ReportController::class, 'tanksStockSummary']);
     Route::get('reports/shift-details', [ReportController::class, 'shiftDetails']);
+    Route::get('reports/safe-transactions', [ReportController::class, 'safeTransactionsReport']);
 
 
 

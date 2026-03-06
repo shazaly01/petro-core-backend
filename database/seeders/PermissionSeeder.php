@@ -16,21 +16,30 @@ class PermissionSeeder extends Seeder
 
         $guardName = 'api';
 
-        // 2. قائمة الصلاحيات الشاملة (تم إضافة حركات المخزون والتسويات)
+        // 2. قائمة الصلاحيات الشاملة
         $permissions = [
             'dashboard.view', 'reports.view',
             'user.view', 'user.create', 'user.update', 'user.delete',
             'role.view', 'role.create', 'role.update', 'role.delete',
             'infrastructure.view', 'infrastructure.create', 'infrastructure.update', 'infrastructure.delete',
             'shift.view', 'shift.create', 'shift.close', 'shift.delete',
-            'expense.view', 'expense.create', 'expense.update', 'expense.delete',
+
+            // 🛑 استبدال المصروفات بالسندات المالية الشاملة
+            'voucher.view', 'voucher.create', 'voucher.update', 'voucher.delete',
+
             'assignment.view', 'assignment.create', 'assignment.update', 'assignment.delete',
             'supply.view', 'supply.create', 'supply.update', 'supply.delete',
             'transaction.view', 'transaction.create', 'transaction.update', 'transaction.delete',
             'setting.view', 'setting.update',
-            // 🛑 الصلاحيات الجديدة الخاصة بالمخزون والتسويات الجردية
+
+            // 🛑 الصلاحيات الخاصة بالمخزون والتسويات الجردية
             'inventory_adjustment.view', 'inventory_adjustment.create', 'inventory_adjustment.update', 'inventory_adjustment.delete',
             'stock_movement.view', // عرض دفتر الأستاذ (كشف حساب الخزان)
+
+            // 💰 الصلاحيات الخاصة بالخزينة (الماليات)
+            'safe.view', 'safe.create', 'safe.update', 'safe.delete',
+            'safe.withdraw', // يمكن إبقاؤها إذا أردنا حماية زر "سحب/تصفير" بداخل شاشة السندات
+            'safe_transaction.view', // عرض دفتر أستاذ الخزينة (حركات الدخول والخروج للقراءة فقط)
         ];
 
         foreach ($permissions as $permission) {
@@ -51,14 +60,23 @@ class PermissionSeeder extends Seeder
         $supervisorRole->syncPermissions([
             'dashboard.view', 'reports.view',
             'shift.view', 'shift.create', 'shift.close',
-            'expense.view', 'expense.create',
+
+            // 🛑 إعطاء المشرف صلاحية عرض وإنشاء السندات (مصروفات، تسويات، إلخ)
+            'voucher.view', 'voucher.create',
+
             'assignment.view', 'assignment.create', 'assignment.update',
             'supply.view', 'supply.create',
             'transaction.view', 'transaction.create',
             'infrastructure.view', // مشاهدة هيكل المحطة فقط
-            // 🛑 صلاحيات الجرد للمشرف (رؤية وإنشاء فقط، بدون حذف أو تعديل)
+
+            // 🛑 صلاحيات الجرد للمشرف
             'inventory_adjustment.view', 'inventory_adjustment.create',
-            'stock_movement.view', // السماح له برؤية حركة الخزان
+            'stock_movement.view',
+
+            // 💰 صلاحيات الخزينة للمشرف
+            'safe.view', // رؤية الخزينة ورصيدها
+            'safe.withdraw', // تصفير الخزينة وتسليم النقدية
+            'safe_transaction.view', // رؤية حركات الخزينة الخاصة بوردتيه أو محطته
         ]);
 
         // د. Worker: عامل المضخة

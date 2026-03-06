@@ -7,7 +7,10 @@ use App\Models\StockMovement;
 use App\Models\Tank;
 use App\Models\Assignment;
 use App\Models\SupplyLog;
-use App\Models\Expense;
+use App\Models\Voucher;
+use App\Models\Safe;
+use App\Enums\VoucherType;
+use Illuminate\Validation\Rule;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -86,7 +89,7 @@ class ReportController extends Controller
         // 1. التحقق من المدخلات الجديدة (تاريخ البداية والنهاية)
         $request->validate([
             'start_date' => 'nullable|date',
-            'end_date'   => 'nullable|date|after_or_equal:start_date', // التأكد أن النهاية بعد أو تساوي البداية
+            'end_date'   => 'nullable|date|after_or_equal:start_date',
         ]);
 
         // 2. تحديد نطاق التاريخ
@@ -141,24 +144,31 @@ class ReportController extends Controller
         }
 
         // ========================================================
-        // --- 5. إضافة المصروفات (الجزء الجديد) ---
+        // --- 5. حركة الصندوق والسندات المالية (الجزء المحدث) ---
         // ========================================================
-        $expenses = Expense::with('shift')
-            ->whereBetween('spent_at', [$start, $end])
+        $vouchers = Voucher::with(['shift', 'user'])
+            ->whereBetween('date', [$start, $end])
             ->get();
 
-        // إجمالي المصروفات كرقم واحد
-        $totalExpenses = $expenses->sum('amount');
+       // تجميع المجاميع حسب نوع السند باستخدام الـ Enum
+        $totalDeposits = $vouchers->where('type', VoucherType::DEPOSIT)->sum('amount');
+        $totalExpenses = $vouchers->where('type', VoucherType::EXPENSE)->sum('amount');
+        $totalWithdrawals = $vouchers->where('type', VoucherType::WITHDRAWAL)->sum('amount');
+        $totalSettlements = $vouchers->where('type', VoucherType::SETTLEMENT)->sum('amount');
 
-        // تجهيز قائمة المصروفات لعرضها في التقرير (المبلغ، البيان، الوردية)
-        $expensesList = $expenses->map(function ($expense) {
+        // تجهيز قائمة السندات لعرضها في التقرير
+        $vouchersList = $vouchers->map(function ($voucher) {
             return [
-                'id' => $expense->id,
-                'amount' => (float) $expense->amount,
-                'description' => $expense->description,
-                // بفرض أن مودل Shift يحتوي على حقل name، إذا كان حقلاً آخر مثل shift_number يرجى تعديله
-                'shift_name' => $expense->shift->name ?? 'غير محدد',
-                'spent_at' => $expense->spent_at->format('Y-m-d H:i'),
+                'id' => $voucher->id,
+                'voucher_no' => (string) $voucher->voucher_no,
+                'type' => $voucher->type->value,
+                'type_ar' => $voucher->type->label(),
+                'amount' => (float) $voucher->amount,
+                'payment_method' => $voucher->payment_method === 'cash' ? 'نقدي' : 'بنكي',
+                'description' => $voucher->description,
+                'shift_name' => $voucher->shift->name ?? 'غير محدد',
+                'user_name' => $voucher->user->full_name ?? $voucher->user->username ?? 'غير محدد',
+                'date' => $voucher->date->format('Y-m-d H:i'),
             ];
         });
         // ========================================================
@@ -187,16 +197,101 @@ class ReportController extends Controller
                 'total_cash' => (float) $totalCash,
                 'total_bank' => (float) $totalBank,
                 'total_difference' => (float) $totalDifference,
-                // تمت إضافة إجمالي المصروفات للملخص المالي
-                'total_expenses' => (float) $totalExpenses,
+                // 🛑 تمت إضافة التفاصيل المالية الجديدة للصندوق
+                'vouchers_summary' => [
+                    'total_deposits' => (float) $totalDeposits,
+                    'total_expenses' => (float) $totalExpenses,
+                    'total_withdrawals' => (float) $totalWithdrawals,
+                    'total_settlements' => (float) $totalSettlements,
+                ],
             ],
             'sales_by_fuel' => $salesByFuel,
             'supplies_by_fuel' => $suppliesByFuel,
-            // تمت إضافة قائمة المصروفات
-            'expenses_list' => $expensesList,
+            // 🛑 القائمة الجديدة الخاصة بالسندات
+            'vouchers_list' => $vouchersList,
             'tanks_status' => $tanksStatus,
         ]);
     }
+
+
+
+
+    /**
+     * تقرير حركة الخزينة التفصيلي (مع إمكانية الفلترة بنوع السند)
+     */
+    public function safeTransactionsReport(Request $request)
+    {
+        // 1. التحقق من المدخلات (تاريخ ونوع الحركة إن وجد)
+        $request->validate([
+            'start_date' => 'nullable|date',
+            'end_date'   => 'nullable|date|after_or_equal:start_date',
+            'type'       => ['nullable', Rule::enum(VoucherType::class)], // التحقق من أن النوع مطابق للـ Enum
+        ]);
+
+        // 2. تحديد النطاق الزمني
+        $start = $request->start_date
+            ? Carbon::parse($request->start_date)->startOfDay()
+            : now()->startOfDay();
+
+        $end = $request->end_date
+            ? Carbon::parse($request->end_date)->endOfDay()
+            : now()->endOfDay();
+
+        // 3. بناء استعلام السندات المالية (Vouchers)
+        $query = Voucher::with(['shift', 'user'])
+            ->whereBetween('date', [$start, $end]);
+
+        // إذا تم تمرير نوع معين (مثلاً: expense فقط أو deposit فقط)، نطبق الفلتر
+        if ($request->filled('type')) {
+            $query->where('type', $request->type);
+        }
+
+        // جلب البيانات مرتبة من الأحدث للأقدم
+        $vouchers = $query->latest('date')->get();
+
+        // 4. حساب ملخص الفلترة (للفترة المحددة فقط)
+        // نستخدم count و sum لإعطاء إحصائية سريعة للمدير
+        $summary = [
+            'total_deposits'    => $vouchers->where('type', VoucherType::DEPOSIT)->sum('amount'),
+            'total_expenses'    => $vouchers->where('type', VoucherType::EXPENSE)->sum('amount'),
+            'total_withdrawals' => $vouchers->where('type', VoucherType::WITHDRAWAL)->sum('amount'),
+            'total_settlements' => $vouchers->where('type', VoucherType::SETTLEMENT)->sum('amount'),
+            'transactions_count'=> $vouchers->count(),
+        ];
+
+        // 5. جلب الرصيد الفعلي الحالي للخزينة (للعرض في رأس التقرير)
+        $safe = Safe::find(1);
+        $currentSafeBalance = $safe ? (float) $safe->balance : 0;
+
+        // 6. تجهيز قائمة الحركات للعرض
+        $vouchersList = $vouchers->map(function ($voucher) {
+            return [
+                'id' => $voucher->id,
+                'voucher_no' => (string) $voucher->voucher_no, // تحويل لنص لضمان عدم ضياع أي أرقام من الـ 18 رقم
+                'type' => $voucher->type->value,
+                'type_ar' => $voucher->type->label(), // الاسم العربي الجاهز
+                'amount' => (float) $voucher->amount,
+                'payment_method_ar' => $voucher->payment_method === 'cash' ? 'نقدي' : 'بنكي',
+                'description' => $voucher->description,
+                'shift_name' => $voucher->shift->name ?? 'غير محدد',
+                'user_name' => $voucher->user->full_name ?? $voucher->user->username ?? 'غير محدد',
+                'date' => $voucher->date->format('Y-m-d H:i'),
+            ];
+        });
+
+        // 7. تجهيز نص التاريخ
+        $dateRangeText = $start->isSameDay($end)
+            ? $start->format('Y-m-d')
+            : 'من ' . $start->format('Y-m-d') . ' إلى ' . $end->format('Y-m-d');
+
+        return response()->json([
+            'date_range' => $dateRangeText,
+            'current_safe_balance' => $currentSafeBalance,
+            'summary' => $summary,
+            'vouchers' => $vouchersList,
+        ]);
+    }
+
 
     /**
      * تقرير نموذج حركة المبيعات اليومية (ميزان المراجعة)

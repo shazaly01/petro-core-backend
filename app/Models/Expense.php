@@ -17,6 +17,7 @@ class Expense extends Model
         'amount',
         'spent_at',
         'payment_method',
+        'category',
         'description',
     ];
 

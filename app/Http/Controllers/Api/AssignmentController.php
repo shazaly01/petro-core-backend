@@ -13,6 +13,7 @@ use App\Http\Resources\AssignmentResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use App\Services\SafeService;
 
 class AssignmentController extends Controller
 {
@@ -89,7 +90,10 @@ class AssignmentController extends Controller
     /**
      * إنهاء التكليف أو تعديل تكليف مغلق مسبقاً (مع تسجيل حركة المخزون)
      */
-    public function update(UpdateAssignmentRequest $request, Assignment $assignment)
+   /**
+     * إنهاء التكليف أو تعديل تكليف مغلق مسبقاً (مع تسجيل حركة المخزون والخزينة)
+     */
+    public function update(UpdateAssignmentRequest $request, Assignment $assignment, SafeService $safeService) // <--- 🛑 2. حقن الخدمة هنا
     {
         $data = $request->validated();
 
@@ -122,30 +126,22 @@ class AssignmentController extends Controller
                 $tank = Tank::find($assignment->pump->tank_id);
 
                 if ($tank) {
-                    // إذا كان التكليف مغلقاً مسبقاً ونحن نعدله الآن (إلغاء العملية القديمة)
                     if ($isUpdatingClosed) {
                         $oldTotalSold = ($assignment->end_counter_1 - $assignment->start_counter_1) + ($assignment->end_counter_2 - $assignment->start_counter_2);
-
-                        // إرجاع الكمية القديمة للخزان
                         $tank->increment('current_stock', $oldTotalSold);
-
-                        // حذف السطر القديم من دفتر حركة المخزون
                         if ($assignment->stockMovement) {
                             $assignment->stockMovement()->delete();
                         }
                     }
 
-                    // 🛑 تسجيل العملية الجديدة النظيفة
                     $balanceBefore = $tank->fresh()->current_stock;
                     $balanceAfter = $balanceBefore - $totalSoldLiters;
 
-                    // خصم الكمية الجديدة من الخزان
                     $tank->update(['current_stock' => $balanceAfter]);
 
-                    // كتابة سطر جديد تماماً في دفتر المخزون
                     $assignment->stockMovement()->create([
                         'tank_id' => $tank->id,
-                        'type' => 'out', // نوع الحركة: خروج (مبيعات)
+                        'type' => 'out',
                         'quantity' => $totalSoldLiters,
                         'balance_before' => $balanceBefore,
                         'balance_after' => $balanceAfter,
@@ -160,7 +156,10 @@ class AssignmentController extends Controller
                     'current_counter_2' => $end2,
                 ]);
 
-                // 5. حفظ التكليف النهائي
+                // 🛑 5. الاحتفاظ بالكاش القديم قبل التحديث (لأغراض التسوية المالية إذا كان هناك تعديل)
+                $oldCashAmount = $assignment->cash_amount;
+
+                // 6. حفظ التكليف النهائي
                 $assignment->update([
                     'end_counter_1' => $end1,
                     'end_counter_2' => $end2,
@@ -171,6 +170,24 @@ class AssignmentController extends Controller
                     'end_at' => $data['end_at'] ?? $assignment->end_at ?? now(),
                     'status' => 'completed',
                 ]);
+
+                // 🛑 7. حركات الخزينة (الإيداع والتسويات)
+                if ($isClosing) {
+                    // حالة الإغلاق لأول مرة
+                    if ($cashAmount > 0) {
+                        $safeService->deposit($cashAmount, $assignment, $assignment->shift_id, 'إيراد كاش لتكليف رقم: ' . $assignment->id);
+                    }
+                } elseif ($isUpdatingClosed) {
+                    // حالة التعديل على تكليف مغلق مسبقاً
+                    // أ. قيد عكسي لسحب المبلغ القديم وإلغاء تأثيره
+                    if ($oldCashAmount > 0) {
+                        $safeService->withdraw($oldCashAmount, $assignment, $assignment->shift_id, 'قيد عكسي لتعديل تكليف رقم: ' . $assignment->id);
+                    }
+                    // ب. إيداع المبلغ الجديد بعد التعديل
+                    if ($cashAmount > 0) {
+                        $safeService->deposit($cashAmount, $assignment, $assignment->shift_id, 'إيراد كاش معدل لتكليف رقم: ' . $assignment->id);
+                    }
+                }
 
                 DB::commit();
 
