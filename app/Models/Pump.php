@@ -14,22 +14,44 @@ class Pump extends Model
 
     protected $fillable = [
         'island_id',
-        'tank_id',           // تم إضافة الخزان هنا مباشرة
+        'tank_id',
         'name',
-        'code',              // الكود سيكون رقمي DECIMAL(18,0)
+        'code',
         'model',
-        'current_counter_1', // العداد التراكمي للمسدس الأول
-        'current_counter_2', // العداد التراكمي للمسدس الثاني
+        'current_counter_1',
+        'current_counter_2',
         'is_active',
         'notes',
     ];
 
     protected $casts = [
-        'code' => 'decimal:0', // ليتوافق مع الأكواد الطويلة
+        'code' => 'decimal:0', // تم الحفاظ على الدقة العشرية للأكواد الطويلة
         'current_counter_1' => 'decimal:2',
         'current_counter_2' => 'decimal:2',
         'is_active' => 'boolean',
     ];
+
+    // 🛑 التعديل الأول: إضافة الحقل الوهمي ليظهر دائماً في الـ JSON
+    protected $appends = ['is_busy'];
+
+    /**
+     * 🛑 التعديل الثاني: دالة الوصول (Accessor) لمعرفة هل المضخة مشغولة
+     * تعيد true إذا كان هناك تكليف نشط مرتبط بها
+     */
+    public function getIsBusyAttribute(): bool
+    {
+        return $this->assignments()->where('status', 'active')->exists();
+    }
+
+    /**
+     * 🛑 التعديل الثالث: Scope لجلب المضخات المتاحة فقط (التي ليس لها تكليف نشط)
+     */
+    public function scopeAvailable($query)
+    {
+        return $query->whereDoesntHave('assignments', function ($q) {
+            $q->where('status', 'active');
+        });
+    }
 
     /**
      * العلاقات

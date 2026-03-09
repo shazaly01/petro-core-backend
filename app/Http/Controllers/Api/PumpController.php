@@ -20,10 +20,16 @@ class PumpController extends Controller
     /**
      * عرض جميع المضخات
      */
-    public function index()
+  public function index(Request $request) // 🛑 التعديل: إضافة Request هنا
     {
-        // جلب المضخات مع اسم الجزيرة والخزان ونوع الوقود (بدون المسدسات)
-        $pumps = Pump::with(['island', 'tank.fuelType'])->paginate(10);
+        $query = Pump::with(['island', 'tank.fuelType']);
+
+        // 🛑 التعديل: التحقق إذا كان الطلب يحتوي على الفلتر "?available=1" أو "?available=true"
+        if ($request->boolean('available')) {
+            $query->available(); // استخدام الـ Scope الذي أنشأناه في الموديل
+        }
+
+        $pumps = $query->paginate(10);
 
         return PumpResource::collection($pumps);
     }
