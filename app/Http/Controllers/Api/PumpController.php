@@ -29,7 +29,7 @@ class PumpController extends Controller
             $query->available(); // استخدام الـ Scope الذي أنشأناه في الموديل
         }
 
-        $pumps = $query->paginate(10);
+        $pumps = $query->paginate(100);
 
         return PumpResource::collection($pumps);
     }

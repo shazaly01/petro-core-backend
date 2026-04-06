@@ -26,7 +26,7 @@ class TankController extends Controller
         // الترتيب حسب الخزانات التي أوشكت على النفاد (اختياري لتحسين تجربة المستخدم)
         $tanks = Tank::with('fuelType')
             ->orderBy('current_stock', 'asc')
-            ->paginate(10);
+            ->paginate(100);
 
         return TankResource::collection($tanks);
     }
