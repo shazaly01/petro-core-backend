@@ -22,9 +22,21 @@ class AssignmentController extends Controller
         $this->authorizeResource(Assignment::class, 'assignment');
     }
 
-    public function index()
+   public function index()
     {
-        $activeShift = Shift::where('supervisor_id', Auth::id())
+        $user = Auth::user();
+
+        // 🛑 التعديل هنا: استثناء للـ Super Admin لجلب جميع التكليفات
+        if ($user->hasRole('Super Admin')) {
+            $assignments = Assignment::with(['user', 'pump.island', 'pump.tank.fuelType'])
+                ->latest()
+                ->paginate(15);
+
+            return AssignmentResource::collection($assignments);
+        }
+
+        // الكود الأصلي لبقية المستخدمين (المشرفين)
+        $activeShift = Shift::where('supervisor_id', $user->id)
                             ->where('status', 'open')
                             ->first();
 
@@ -203,9 +215,12 @@ class AssignmentController extends Controller
         return new AssignmentResource($assignment->fresh(['user', 'pump.tank.fuelType', 'shift']));
     }
 
-    public function destroy(Assignment $assignment)
+   public function destroy(Assignment $assignment)
     {
-        if ($assignment->status === 'completed') {
+        $user = Auth::user();
+
+        // 🛑 التعديل هنا: إضافة شرط (والمستخدم ليس Super Admin)
+        if ($assignment->status === 'completed' && !$user->hasRole('Super Admin')) {
             return response()->json(['message' => 'لا يمكن حذف تكليف مكتمل ومحسوب مالياً. قم بتعديل العدادات لتصفيره بدلاً من ذلك.'], 422);
         }
 
