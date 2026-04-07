@@ -215,16 +215,64 @@ class AssignmentController extends Controller
         return new AssignmentResource($assignment->fresh(['user', 'pump.tank.fuelType', 'shift']));
     }
 
-   public function destroy(Assignment $assignment)
+
+
+public function destroy(Assignment $assignment, SafeService $safeService) // 🛑 حقن SafeService هنا
     {
         $user = Auth::user();
 
-        // 🛑 التعديل هنا: إضافة شرط (والمستخدم ليس Super Admin)
+        // 1. منع الحذف لمن لا يمتلك صلاحية السوبر أدمن إذا كان التكليف مكتملاً
         if ($assignment->status === 'completed' && !$user->hasRole('Super Admin')) {
             return response()->json(['message' => 'لا يمكن حذف تكليف مكتمل ومحسوب مالياً. قم بتعديل العدادات لتصفيره بدلاً من ذلك.'], 422);
         }
 
-        $assignment->delete();
-        return response()->noContent();
+        DB::beginTransaction();
+        try {
+            // 2. إذا كان التكليف مكتملاً، نقوم بالتراجع عن جميع التأثيرات
+            if ($assignment->status === 'completed') {
+
+                // أ. حساب اللترات التي تم بيعها
+                $soldLiters1 = $assignment->end_counter_1 - $assignment->start_counter_1;
+                $soldLiters2 = $assignment->end_counter_2 - $assignment->start_counter_2;
+                $totalSoldLiters = max(0, $soldLiters1) + max(0, $soldLiters2);
+
+                // ب. إرجاع الكمية إلى الخزان
+                $tank = Tank::find($assignment->pump->tank_id);
+                if ($tank && $totalSoldLiters > 0) {
+                    $tank->increment('current_stock', $totalSoldLiters);
+                }
+
+                // ج. حذف حركة المخزون المرتبطة (لتنظيف دفتر الأستاذ)
+                if ($assignment->stockMovement) {
+                    $assignment->stockMovement()->delete();
+                }
+
+                // د. إرجاع العدادات التراكمية للمضخة إلى قراءات البداية الخاصة بهذا التكليف
+                $assignment->pump->update([
+                    'current_counter_1' => $assignment->start_counter_1,
+                    'current_counter_2' => $assignment->start_counter_2,
+                ]);
+
+                // هـ. إجراء قيد عكسي بسحب الكاش المودع من الخزينة
+                if ($assignment->cash_amount > 0) {
+                    $safeService->withdraw(
+                        $assignment->cash_amount,
+                        $assignment,
+                        $assignment->shift_id,
+                        'قيد عكسي بسبب حذف السوبر أدمن لتكليف رقم: ' . $assignment->id
+                    );
+                }
+            }
+
+            // 3. أخيراً، حذف التكليف نفسه (Soft Delete)
+            $assignment->delete();
+
+            DB::commit();
+            return response()->noContent();
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'حدث خطأ أثناء محاولة التراجع والحذف: ' . $e->getMessage()], 500);
+        }
     }
 }

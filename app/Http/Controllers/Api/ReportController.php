@@ -216,66 +216,65 @@ class ReportController extends Controller
 
 
 
-    /**
-     * تقرير حركة الخزينة التفصيلي (مع إمكانية الفلترة بنوع السند)
+  /**
+     * تقرير حركة الخزينة التفصيلي الشامل (يقرأ من دفتر الخزينة الرئيسي)
      */
     public function safeTransactionsReport(Request $request)
     {
-        // 1. التحقق من المدخلات (تاريخ ونوع الحركة إن وجد)
+        // 1. التحقق من المدخلات
         $request->validate([
             'start_date' => 'nullable|date',
             'end_date'   => 'nullable|date|after_or_equal:start_date',
-            'type'       => ['nullable', Rule::enum(VoucherType::class)], // التحقق من أن النوع مطابق للـ Enum
+            'type'       => 'nullable|in:in,out', // نوع الحركة في الخزينة: in (وارد) أو out (صادر)
         ]);
 
         // 2. تحديد النطاق الزمني
         $start = $request->start_date
-            ? Carbon::parse($request->start_date)->startOfDay()
+            ? \Carbon\Carbon::parse($request->start_date)->startOfDay()
             : now()->startOfDay();
 
         $end = $request->end_date
-            ? Carbon::parse($request->end_date)->endOfDay()
+            ? \Carbon\Carbon::parse($request->end_date)->endOfDay()
             : now()->endOfDay();
 
-        // 3. بناء استعلام السندات المالية (Vouchers)
-        $query = Voucher::with(['shift', 'user'])
-            ->whereBetween('date', [$start, $end]);
+        // 3. 🛑 التعديل الجوهري: القراءة من جدول حركات الخزينة (SafeTransaction)
+        $query = \App\Models\SafeTransaction::with(['user', 'transactionable'])
+            ->whereBetween('created_at', [$start, $end]);
 
-        // إذا تم تمرير نوع معين (مثلاً: expense فقط أو deposit فقط)، نطبق الفلتر
+        // الفلترة بنوع الحركة (وارد أو صادر)
         if ($request->filled('type')) {
             $query->where('type', $request->type);
         }
 
         // جلب البيانات مرتبة من الأحدث للأقدم
-        $vouchers = $query->latest('date')->get();
+        $transactions = $query->latest('created_at')->get();
 
-        // 4. حساب ملخص الفلترة (للفترة المحددة فقط)
-        // نستخدم count و sum لإعطاء إحصائية سريعة للمدير
+        // 4. حساب ملخص الفلترة
         $summary = [
-            'total_deposits'    => $vouchers->where('type', VoucherType::DEPOSIT)->sum('amount'),
-            'total_expenses'    => $vouchers->where('type', VoucherType::EXPENSE)->sum('amount'),
-            'total_withdrawals' => $vouchers->where('type', VoucherType::WITHDRAWAL)->sum('amount'),
-            'total_settlements' => $vouchers->where('type', VoucherType::SETTLEMENT)->sum('amount'),
-            'transactions_count'=> $vouchers->count(),
+            'total_deposits'    => $transactions->where('type', 'in')->sum('amount'),
+            'total_withdrawals' => $transactions->where('type', 'out')->sum('amount'),
+            'total_expenses'    => 0, // يمكنك تصفيرها أو حسابها إذا أردت تفصيل أكثر من السندات
+            'total_settlements' => 0,
+            'transactions_count'=> $transactions->count(),
         ];
 
-        // 5. جلب الرصيد الفعلي الحالي للخزينة (للعرض في رأس التقرير)
-        $safe = Safe::find(1);
+        // 5. جلب الرصيد الفعلي الحالي للخزينة
+        $safe = \App\Models\Safe::find(1);
         $currentSafeBalance = $safe ? (float) $safe->balance : 0;
 
-        // 6. تجهيز قائمة الحركات للعرض
-        $vouchersList = $vouchers->map(function ($voucher) {
+        // 6. تجهيز قائمة الحركات للعرض في الواجهة (نحافظ على نفس مفاتيح الـ JSON حتى لا تتعطل الواجهة)
+        $vouchersList = $transactions->map(function ($t) {
             return [
-                'id' => $voucher->id,
-                'voucher_no' => (string) $voucher->voucher_no, // تحويل لنص لضمان عدم ضياع أي أرقام من الـ 18 رقم
-                'type' => $voucher->type->value,
-                'type_ar' => $voucher->type->label(), // الاسم العربي الجاهز
-                'amount' => (float) $voucher->amount,
-                'payment_method_ar' => $voucher->payment_method === 'cash' ? 'نقدي' : 'بنكي',
-                'description' => $voucher->description,
-                'shift_name' => $voucher->shift->name ?? 'غير محدد',
-                'user_name' => $voucher->user->full_name ?? $voucher->user->username ?? 'غير محدد',
-                'date' => $voucher->date->format('Y-m-d H:i'),
+                'id' => $t->id,
+                'voucher_no' => (string) $t->transaction_no, // رقم حركة الخزينة ذو الـ 18 رقم
+                'type' => $t->type,
+                'type_ar' => $t->type === 'in' ? 'وارد (إيداع)' : 'صادر (سحب)',
+                'amount' => (float) $t->amount,
+                'payment_method_ar' => 'نقدي', // كل ما يخص الخزينة هو نقدي حتماً
+                'description' => $t->description, // 🛑 الوصف الدقيق (سواء كان سند أو تكليف أو قيد عكسي)
+                'shift_name' => 'وردية ' . ($t->shift_id ?? 'غير محدد'), // إن أردت يمكنك ربط الـ shift
+                'user_name' => $t->user->full_name ?? $t->user->username ?? 'نظام (آلي)',
+                'date' => $t->created_at->format('Y-m-d H:i'),
             ];
         });
 
@@ -288,7 +287,7 @@ class ReportController extends Controller
             'date_range' => $dateRangeText,
             'current_safe_balance' => $currentSafeBalance,
             'summary' => $summary,
-            'vouchers' => $vouchersList,
+            'vouchers' => $vouchersList, // أبقينا الاسم vouchers لتتوافق مع Vue.js
         ]);
     }
 
