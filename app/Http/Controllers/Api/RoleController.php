@@ -84,37 +84,51 @@ class RoleController extends Controller
 
         return response()->noContent();
     }
-    /**
+
+
+   /**
      * Get all available permissions.
      * هذه الدالة لا يتم حمايتها بـ authorizeResource، لذا نضيف الصلاحية يدويًا
      */
-   public function getAllPermissions()
+    public function getAllPermissions()
     {
         $this->authorize('viewAny', Role::class);
 
-        // 1. قاموس الترجمة
+        // 1. قاموس الترجمة المحدث (خاص بنظام محطات الوقود)
         $groupTranslations = [
             'dashboard' => 'لوحة التحكم',
+            'reports' => 'التقارير',
             'user' => 'المستخدمون',
-            'role' => 'الأدوار',
-            'company' => 'الشركات',
+            'role' => 'الأدوار والصلاحيات',
+            'infrastructure' => 'هيكلية المحطة (مضخات، خزانات، جزر)',
+            'shift' => 'الورديات',
+            'voucher' => 'السندات المالية',
+            'assignment' => 'التكليفات والمبيعات',
+            'supply' => 'التوريدات (تعبئة الوقود)',
+            'transaction' => 'العمليات',
             'setting' => 'الإعدادات',
-            // --- الإضافات الجديدة ---
-            'project' => 'المشاريع',
-            'payment' => 'المدفوعات',
-            'document' => 'المستندات',
-            'backup' => 'النسخ الاحتياطي',
-            'owner' => 'الجهه المالكة',
+            'inventory_adjustment' => 'تسويات الجرد',
+            'stock_movement' => 'حركة المخزون (دفتر الأستاذ)',
+            'safe' => 'الخزينة (الصندوق)',
+            'safe_transaction' => 'سجل حركات الخزينة',
         ];
 
+        // قاموس الإجراءات (مع إضافة الإجراءات الاستثنائية للورديات والخزينة)
         $actionTranslations = [
-            'view' => 'عرض', 'create' => 'إنشاء', 'update' => 'تعديل', 'delete' => 'حذف',
+            'view'     => 'عرض',
+            'create'   => 'إنشاء',
+            'update'   => 'تعديل',
+            'delete'   => 'حذف',
+            'close'    => 'إغلاق',       // تمت إضافتها من أجل (shift.close)
+            'withdraw' => 'سحب/تصفير', // تمت إضافتها من أجل (safe.withdraw)
         ];
 
         // 2. جلب كل الصلاحيات وتجميعها حسب المجموعة
-        $permissions = Permission::where('guard_name', 'api')->get()->groupBy(function ($permission) {
-            return explode('.', $permission->name)[0];
-        });
+        $permissions = \Spatie\Permission\Models\Permission::where('guard_name', 'api')
+            ->get()
+            ->groupBy(function ($permission) {
+                return explode('.', $permission->name)[0];
+            });
 
         // 3. بناء هيكل المجموعات (groups)
         $structuredGroups = [];
@@ -135,7 +149,7 @@ class RoleController extends Controller
             if (!empty($groupPermissions)) {
                 $structuredGroups[] = [
                     'key' => $groupKey,
-                    'display_name' => $groupTranslations[$groupKey] ?? $groupKey,
+                    'display_name' => $groupTranslations[$groupKey] ?? $groupKey, // إذا لم نجد ترجمة، نعرض الاسم الإنجليزي
                     'permissions' => $groupPermissions,
                 ];
             }
