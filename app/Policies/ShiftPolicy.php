@@ -35,15 +35,19 @@ class ShiftPolicy
     /**
      * من يمكنه تعديل الوردية (الإغلاق وتسجيل العجز)؟
      */
-    public function update(User $user, Shift $shift): bool
+public function update(User $user, Shift $shift): bool
     {
-        // التعديل مسموح إذا كان لديه صلاحية الإغلاق
-        // أو إذا كان هو المشرف صاحب الوردية (بشرط أن تكون الوردية لا تزال مفتوحة)
+        // 1. إذا كانت الوردية مغلقة، المشرف العام فقط يمكنه التعديل
         if ($shift->status === 'closed') {
-             // المشرف العام فقط يمكنه تعديل وردية مغلقة (للتصحيح)
              return $user->hasRole('Admin') || $user->hasRole('Super Admin');
         }
 
+        // 🛑 2. الحل الجذري: إذا كان المستخدم الحالي هو نفسه صاحب الوردية المفتوحة، اسمح له فوراً!
+        if ($shift->supervisor_id === $user->id) {
+            return true;
+        }
+
+        // 3. كإجراء احتياطي، نتحقق من الصلاحية العامة
         return $user->can('shift.close');
     }
 

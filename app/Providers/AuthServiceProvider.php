@@ -9,8 +9,8 @@ use Spatie\Permission\Models\Role;
 use App\Policies\RolePolicy;
 // --- نهاية الإضافات ---
 
-use App\Models\Company;
-use App\Policies\CompanyPolicy;
+use App\Models\Shift;
+use App\Policies\ShiftPolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 use Illuminate\Support\Facades\Gate;
 
@@ -27,6 +27,7 @@ class AuthServiceProvider extends ServiceProvider
         // --- بداية التعديل: تسجيل الـ Policies الجديدة ---
         User::class => UserPolicy::class,
         Role::class => RolePolicy::class,
+        Shift::class => ShiftPolicy::class,
         // --- نهاية التعديل ---
     ];
 
